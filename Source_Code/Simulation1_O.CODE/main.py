@@ -58,7 +58,7 @@ uy = u @ ey
 
 domain = Domain(dist, (xbasis, ybasis))
 
-# Problem
+#New changes made in this section
 problem = d3.IVP([omega, psi, tau_psi], namespace=locals())
 problem.add_equation("dt(omega) - lap(omega)/Re + alpha*omega = -u @ d3.grad(omega) + f")
 problem.add_equation("lap(psi) + omega + tau_psi = 0")
