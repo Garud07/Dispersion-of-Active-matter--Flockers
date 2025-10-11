@@ -20,113 +20,68 @@ logger = logging.getLogger(__name__)
 # Parameters
 Lx, Ly = 2*np.pi, 2*np.pi
 Nx, Ny = 64, 64
-
-# Inverse timescale
-
 Re = 1e3
 alpha = .01
 lam = 1
-
 dealias = 3/2
 stop_sim_time = 100
 timestepper = d3.RK222
 max_timestep = 2e-2
 dtype = np.float64
-
 Nx_dealias = int(dealias * Nx)
 Ny_dealias = int(dealias * Ny)
-
-# Bases
 coords = d3.CartesianCoordinates('x', 'y')
 dist = d3.Distributor(coords, dtype=dtype)
 xbasis = d3.RealFourier(coords['x'], size=Nx, bounds=(-Lx/2, Lx/2), dealias=dealias)
 ybasis = d3.RealFourier(coords['y'], size=Ny, bounds=(-Ly/2, Ly/2), dealias=dealias)
-
-# Fields
 omega = dist.Field(name='omega', bases=(xbasis,ybasis))
 f  = dist.Field(name='f', bases=(xbasis,ybasis))
 psi   = dist.Field(name='psi', bases=(xbasis,ybasis))
 tau_psi = dist.Field(name='tau_psi')
 t = dist.Field()
-
-# Substitutions
 x, y = dist.local_grids(xbasis, ybasis, scales=(dealias,dealias))
 ex, ey = coords.unit_vector_fields(dist)
 u = d3.grad(psi)@ey * ex - d3.grad(psi)@ex * ey
 ux = u @ ex
 uy = u @ ey
-
 domain = Domain(dist, (xbasis, ybasis))
-
-#New changes made in this section
 problem = d3.IVP([omega, psi, tau_psi], namespace=locals())
 problem.add_equation("dt(omega) - lap(omega)/Re + alpha*omega = -u @ d3.grad(omega) + f")
 problem.add_equation("lap(psi) + omega + tau_psi = 0")
 problem.add_equation("integ(psi) = 0") 
-
-# Solver
 solver = problem.build_solver(timestepper)
 solver.stop_sim_time = stop_sim_time
-
 psi.fill_random('g', seed=42, distribution='normal', scale=1e-2, ) # Random noise
 psi.low_pass_filter(scales=0.1)
 omega.change_scales(dealias)
 omega['g'] = -d3.lap(psi).evaluate()['g']
-
 def initialize_forcing(domain, k_range = [3, 4]):
-    # Use Dedalus tools to access local wavenumber arrays
-
     kx, ky = np.meshgrid(domain.bases[0].wavenumbers, domain.bases[1].wavenumbers, indexing='ij')
-    # Forcing amplitude function (example: uniform over band)
-
     ksq = kx**2 + ky**2
     A = np.logical_and(ksq >= k_range[0]**2, ksq <= k_range[1]**2).astype(float)
-
-    # Normalize (avoid zero-division)
     A /= np.sum(A)
-
-    # Store for later use
     return A
-
 def forcing(domain, A):
-    # Get local shapes
     cslices = domain.dist.coeff_layout.slices(domain,scales=1)
     crand = np.random.RandomState(seed=42)
     cshape = domain.dist.coeff_layout.global_shape(domain, scales=1)
     return A[cslices] * np.random.normal(size=cshape)[cslices]
-
-
-# Initialise forcing
 f['c'] = 0.0
-
 A = initialize_forcing(domain)
-
-# Time Series
 timeseries = solver.evaluator.add_file_handler('timeseries',iter=10)
-
-# Spectra
 spectra = solver.evaluator.add_file_handler('spectra', sim_dt=1)
 spectra.add_task(u, layout='c', name='Eu(k)')
-
-# 2d Fields
 analysis_tasks = []
 snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=0.5, max_writes=200)
-
 snapshots.add_task(omega, name='vorticity', scales=dealias)
 analysis_tasks.append(snapshots)
-
-# CFL
 CFL = d3.CFL(solver, initial_dt=max_timestep, cadence=10, safety=0.1, threshold=0.05,
              max_change=1.5, min_change=0.5, max_dt=max_timestep)
 CFL.add_velocity(u)
-
-# Flow properties
 flow = d3.GlobalFlowProperty(solver, cadence=100)
 flow.add_property(d3.Integrate(omega**2), name='<omega**2>')
 flow.add_property(d3.Integrate(d3.grad(omega)@d3.grad(omega)), name='<|d omega|**2>')
 flow.add_property(d3.Integrate(omega * f), name='<omega*f>')
-
-#Initiate particles (N particles)
 N = 1000
 particle_tracker = particles.particles(N, dist, (xbasis,ybasis), scale=(0.05,0.05), loc=(0,0))
 locs = []
@@ -136,8 +91,6 @@ savet = 0
 savedt = 0.01
 times = [0.]
 savet += savedt
-
-# Main loop
 try:
     logger.info('Starting main loop')
     start_time = time.time()
